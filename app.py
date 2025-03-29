@@ -132,57 +132,91 @@ def calculate_imposter_joint(force_value):
 
 def calculate_u_joint(force_value):
     try:
-        P = force_value
+        
+        # Constants
+        P = force_value  # max axial load
         p = P * 4.4482216
-        MUS = 450  # Ultimate Strength
-        MYS = 350  # Yield Strength
-        FT = 1
+        MUS = 450  # Maximum Ultimate Strength
+        MYS = 350  # Maximum Yield Strength
+        FT = 1  # Fraction of Thickness at EOM
         ShearLag = 0.6
-        BoltDiameter = 9.53
-        n = 1
+        BoltDiameter = 9.53  # Fixed Bolt Diameter
+
+        # Joint Design Inputs
+        n = 1  # Number of Bolts in Line
         boltspacing = 0
         ShearPlanes = 2
-        Ks = 0.30
-        Cs = 1
+        Ks = 0.30  # Mean Slip Coefficient based on Surface
+        Cs = 1  # Coefficient of 5% slip probability
+
+        # Known Parameters
         Fub = 825
         Phibr = 0.8
         Phib = 0.8
         Phiu = 0.75
 
+        # Function to calculate DSFs
         def calculate_DSF(params):
             t, w, l = params
+            
+            
             boltRadius = BoltDiameter / 2
             boltArea = np.pi * (boltRadius ** 2)
-            NetAreaConn = t * (w - n * (4 + 2 * boltRadius))
+            NetAreaConn = t*(w-n*(4+2*boltRadius)) #Net Area Connection
+            
+            # Area Check
             if NetAreaConn <= 0:
-                return -np.inf, -np.inf, -np.inf, -np.inf
-            BSnetShearArea = t * (l + 2 * boltRadius + 4)
-            BSnetTensionArea = boltspacing * (n - 1)
-            Vr = 0.7 * 0.6 * Phib * n * ShearPlanes * boltArea * Fub / 1000
-            Br = 3 * Phibr * n * t * BoltDiameter * MUS / 1000
-            Tr = Phiu * ShearLag * NetAreaConn * MUS / 1000
-            BlockShear = Phiu * (1 * BSnetTensionArea * MUS + (0.6 * BSnetShearArea * (MUS + MYS) / 2)) / 1000
+                return -np.inf, -np.inf, -np.inf, -np.inf  
+            
+            BSnetShearArea = t*(l+2*boltRadius+4)
+            BSnetTensionArea = boltspacing*(n-1)
+            
+            # Capacities
+            Vr = 0.7 * 0.6 * Phib * n * ShearPlanes * boltArea * Fub / 1000  # Bolt Shear Capacity
+            Br = 3 * Phibr * n * t * BoltDiameter * MUS / 1000  # Bearing Capacity
+            Tr = Phiu * ShearLag * NetAreaConn * MUS / 1000  # Net Section Rupture
+            BlockShear = Phiu * (1*BSnetTensionArea * MUS + (0.6 * BSnetShearArea * (MUS + MYS) / 2)) / 1000  # Block Shear
+
+            # Design Safety Factors
             DSF1 = Vr / p
             DSF2 = Br / p
             DSF3 = Tr / p
             DSF4 = BlockShear / p
+            
             return DSF1, DSF2, DSF3, DSF4
 
+        # Objective function to minimize the squared deviations from 1.3
         def objective(params):
             DSF1, DSF2, DSF3, DSF4 = calculate_DSF(params)
             if DSF1 == -np.inf or DSF2 == -np.inf or DSF3 == -np.inf or DSF4 == -np.inf:
-                return np.inf
-            return (DSF1 - 1.26) ** 2 + (DSF2 - 1.26) ** 2 + (DSF3 - 1.26) ** 2 + (DSF4 - 1.26) ** 2
+                return np.inf  # Penalize invalid configurations
+            
+            # Deviation metrics from 1.26 for each DSF
+            dsf_penalty = (DSF1 - 1.26)**2 + (DSF2 - 1.26)**2 + (DSF3 - 1.26)**2 + (DSF4 - 1.26)**2
+            return dsf_penalty
 
+        # Constraints to ensure each DSF >= 1.3
         constraints = [
-            {'type': 'ineq', 'fun': lambda params: calculate_DSF(params)[0] - 1.26},
-            {'type': 'ineq', 'fun': lambda params: calculate_DSF(params)[1] - 1.26},
-            {'type': 'ineq', 'fun': lambda params: calculate_DSF(params)[2] - 1.26},
-            {'type': 'ineq', 'fun': lambda params: calculate_DSF(params)[3] - 1.26}
+            {'type': 'ineq', 'fun': lambda params: calculate_DSF(params)[0] - 1.26},  # DSF1
+            {'type': 'ineq', 'fun': lambda params: calculate_DSF(params)[1] - 1.26},  # DSF2
+            {'type': 'ineq', 'fun': lambda params: calculate_DSF(params)[2] - 1.26},  # DSF3
+            {'type': 'ineq', 'fun': lambda params: calculate_DSF(params)[3] - 1.26}   # DSF4
         ]
-        bounds = [(0.794, 100), (0.794, 100), (0.794, 100)]
-        initial_guess = [9.53, 26.98, 19.05]
+
+        # Define bounds for t, w, l
+        bounds = [
+            (0.794, 100),  # t: thickness at connection, hardset from 2 to avoid boundary limit
+            (0.794, 100),  # w: width at connection
+            (0.794, 100)   # l: length to end
+        ]
+
+        
+        initial_guess = [9.53, 26.98, 19.05]  # feasible region
+
+        # Run optimization
         result = minimize(objective, initial_guess, bounds=bounds, constraints=constraints, method='trust-constr')
+
+    
         optimized_params = result.x
         DSF1, DSF2, DSF3, DSF4 = calculate_DSF(optimized_params)
         output = (
@@ -200,60 +234,94 @@ def calculate_u_joint(force_value):
 
 def calculate_plate_joint(force_value):
     try:
-        P = force_value
+        
+        # Constants
+        P = force_value  # max axial load
         p = P * 4.4482216
-        MUS = 450
-        MYS = 350
-        FT = 1
+        MUS = 450  # Maximum Ultimate Strength
+        MYS = 350  # Maximum Yield Strength
+        FT = 1  # Fraction of Thickness at EOM
         ShearLag = 0.6
-        BoltDiameter = 9.53
-        n = 1
+        BoltDiameter = 9.53  # Fixed Bolt Diameter
+
+        # Joint Design Inputs
+        n = 1  # Number of Bolts in Line
         boltspacing = 0
         ShearPlanes = 1
-        Ks = 0.30
-        Cs = 1
+        Ks = 0.30  # Mean Slip Coefficient based on Surface
+        Cs = 1  # Coefficient of 5% slip probability
+
+        # Known Parameters
         Fub = 825
         Phibr = 0.8
         Phib = 0.8
         Phiu = 0.75
 
+        # calculate DSFs
         def calculate_DSF(params):
-            t, w, l = params
+            t, w, l = params  # Unpack
+            
+            # Intermediate Calculations
             boltRadius = BoltDiameter / 2
             boltArea = np.pi * (boltRadius ** 2)
-            NetAreaConn = t * (w - n * (2 + BoltDiameter))
+            NetAreaConn = t * (w - n * (2 + BoltDiameter))  # Net Area Connection
+            
+            # Check for valid areas
             if NetAreaConn <= 0:
-                return -np.inf, -np.inf, -np.inf, -np.inf
+                return -np.inf, -np.inf, -np.inf, -np.inf  # Return invalid DSF if area is zero or negative
+            
             meanv1 = FT * t
             meanV2 = t
             average = (meanv1 + meanV2) / 2
             BSnetShearArea = average * l * 2
-            BSnetTensionArea = boltspacing * (n - 1)
-            Vr = 0.7 * 0.6 * Phib * n * ShearPlanes * boltArea * Fub / 1000
-            Br = 3 * Phibr * n * t * BoltDiameter * MUS / 1000
-            Tr = Phiu * ShearLag * NetAreaConn * MUS / 1000
-            BlockShear = Phiu * (1 * BSnetTensionArea * MUS + (0.6 * BSnetShearArea * (MUS + MYS) / 2)) / 1000
+            BSnetTensionArea = boltspacing*(n-1)
+            
+            # Capacities
+            Vr = 0.7 * 0.6 * Phib * n * ShearPlanes * boltArea * Fub / 1000  # Bolt Shear Capacity
+            Br = 3 * Phibr * n * t * BoltDiameter * MUS / 1000  # Bearing Capacity
+            Tr = Phiu * ShearLag * NetAreaConn * MUS / 1000  # Net Section Rupture
+            BlockShear = Phiu * (1*BSnetTensionArea * MUS + (0.6 * BSnetShearArea * (MUS + MYS) / 2)) / 1000  # Block Shear
+
+            # Design Safety Factors
             DSF1 = Vr / p
             DSF2 = Br / p
             DSF3 = Tr / p
             DSF4 = BlockShear / p
+            
             return DSF1, DSF2, DSF3, DSF4
 
+        # Objective function to minimize the squared deviations from 1.3
         def objective(params):
             DSF1, DSF2, DSF3, DSF4 = calculate_DSF(params)
             if DSF1 == -np.inf or DSF2 == -np.inf or DSF3 == -np.inf or DSF4 == -np.inf:
-                return np.inf
-            return (DSF1 - 1.26) ** 2 + (DSF2 - 1.26) ** 2 + (DSF3 - 1.26) ** 2 + (DSF4 - 1.26) ** 2
+                return np.inf  # Penalize invalid configurations
+            
+            # Base objective: deviation metrics from 1.26 for each DSF
+            dsf_penalty = (DSF1 - 1.26)**2 + (DSF2 - 1.26)**2 + (DSF3 - 1.26)**2 + (DSF4 - 1.26)**2
+            return dsf_penalty
 
+        
         constraints = [
-            {'type': 'ineq', 'fun': lambda params: calculate_DSF(params)[0] - 1.26},
-            {'type': 'ineq', 'fun': lambda params: calculate_DSF(params)[1] - 1.26},
-            {'type': 'ineq', 'fun': lambda params: calculate_DSF(params)[2] - 1.26},
-            {'type': 'ineq', 'fun': lambda params: calculate_DSF(params)[3] - 1.26}
+            {'type': 'ineq', 'fun': lambda params: calculate_DSF(params)[0] - 1.26},  # DSF1
+            {'type': 'ineq', 'fun': lambda params: calculate_DSF(params)[1] - 1.26},  # DSF2
+            {'type': 'ineq', 'fun': lambda params: calculate_DSF(params)[2] - 1.26},  # DSF3
+            {'type': 'ineq', 'fun': lambda params: calculate_DSF(params)[3] - 1.26}   # DSF4
         ]
-        bounds = [(0.794, 100), (0.794, 100), (0.794, 100)]
-        initial_guess = [6, 18, 8]
+
+        # Define bounds for t, w, l
+        bounds = [
+            (0.794, 100),  # t: thickness at connection, hardset from 2 to avoid boundary limit
+            (0.794, 100),  # w: width at connection
+            (0.794, 100)   # l: length to end
+        ]
+
+        # Initial guess for t, w, l
+        initial_guess = [6, 18, 8]  # feasible region
+
+        # Run optimization
         result = minimize(objective, initial_guess, bounds=bounds, constraints=constraints, method='trust-constr')
+
+        
         optimized_params = result.x
         DSF1, DSF2, DSF3, DSF4 = calculate_DSF(optimized_params)
         output = (
